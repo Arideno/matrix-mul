@@ -1,12 +1,10 @@
 use crossbeam::atomic::AtomicCell;
-use rand::Rng;
 use std::{
     fmt,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Instant}, path::PathBuf, io::{Read, Write}, fs::File,
 };
-
-const TIMES: usize = 1000;
+use clap::{Parser, clap_derive::ArgEnum};
 
 #[macro_export]
 macro_rules! matrix {
@@ -28,56 +26,89 @@ macro_rules! matrix {
     }
 }
 
-fn main() {
-    benchmark();
+#[derive(Parser, Debug)]
+#[clap(author, version, about)]
+struct Args {
+    #[clap(short, long, value_parser, value_name = "FILE")]
+    file: Option<PathBuf>,
+
+    #[clap(short, long)]
+    n: Option<usize>,
+
+    #[clap(short, long)]
+    m: Option<usize>,
+
+    #[clap(short, long)]
+    k: Option<usize>,
+
+    #[clap(short, long, arg_enum, value_parser)]
+    mode: Mode
 }
 
-fn benchmark() {
-    let mut rng = rand::thread_rng();
+#[derive(Clone, Copy, PartialEq, Eq, ArgEnum, Debug)]
+enum Mode {
+    Seq,
+    Par,
+    All
+}
 
-    let mut sync_time = [Duration::ZERO; TIMES];
-    let mut async_time = [Duration::ZERO; TIMES];
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
 
-    for t in 0..TIMES {
-        let i: usize = rng.gen_range(500..=1000);
-        let j: usize = rng.gen_range(500..=1000);
-        let k: usize = rng.gen_range(500..=1000);
-        let a = Matrix::random(i, k);
-        let b = Matrix::random(k, j);
+    let matrix1;
+    let matrix2;
 
-        println!("{t} - Generated");
+    if let Some(file_path) = args.file {
+        let mut data = String::new();
+        let mut file = File::open(file_path).expect("Unable to open file");
+        file.read_to_string(&mut data).expect("Unable to read string");
+        let splitted: Vec<String> = data.split("X").map(|x| x.trim().to_owned()).collect();
+        matrix1 = Matrix::from_string(&splitted[0]);
+        matrix2 = Matrix::from_string(&splitted[1]);
+    } else {
+        let n = args.n.expect("No n found");
+        let m = args.m.expect("No m found");
+        let k = args.k.expect("No k found");
+        matrix1 = Matrix::random(n, m);
+        matrix2 = Matrix::random(m, k);
+    }
 
+    if args.mode == Mode::Seq {
         let start = Instant::now();
-
-        let c = a.multiply(&b);
-
-        sync_time[t] = start.elapsed();
-
-        println!("Sync Elapsed: {:?}", sync_time[t]);
-
-        let start = Instant::now();
+        let matrix_res = matrix1.multiply(&matrix2);
+        let elapsed = start.elapsed();
+        println!("Done! Elapsed time: {:?}", elapsed);
+        matrix_res.write_to_file();
+    } else if args.mode == Mode::Par {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(4)
             .build()
             .unwrap();
+        let start = Instant::now();
+        let matrix_res = pool.install(|| matrix1.multiply_par(&matrix2));
+        let elapsed = start.elapsed();
+        println!("Done! Elapsed time: {:?}", elapsed);
+        matrix_res.write_to_file();
+    } else {
+        let start = Instant::now();
+        let matrix_res_seq = matrix1.multiply(&matrix2);
+        let elapsed = start.elapsed();
+        println!("Done! Elapsed time for SEQ: {:?}", elapsed);
 
-        let d = pool.install(|| a.multiply_async(&b));
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let start = Instant::now();
+        let matrix_res_par = pool.install(|| matrix1.multiply_par(&matrix2));
+        let elapsed = start.elapsed();
+        println!("Done! Elapsed time for PAR: {:?}", elapsed);
 
-        async_time[t] = start.elapsed();
+        assert_eq!(matrix_res_seq, matrix_res_par);
 
-        println!("Async Elapsed: {:?}", async_time[t]);
-
-        assert_eq!(c, d);
+        matrix_res_par.write_to_file();
     }
-
-    println!(
-        "Sync Average: {:?}",
-        sync_time.iter().sum::<Duration>() / TIMES as u32
-    );
-    println!(
-        "Async Average: {:?}",
-        async_time.iter().sum::<Duration>() / TIMES as u32
-    );
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +137,35 @@ impl Matrix {
             cols,
             data: vec,
         }
+    }
+
+    fn from_string(s: &String) -> Matrix {
+        let mut rows = 0;
+        let mut cols = 0;
+        let mut data = Vec::new();
+
+        for line in s.lines() {
+            let splitted: Vec<String> = line.split(" ").map(|x| x.to_owned()).collect();
+
+            if splitted.len() == 0 {
+                continue;
+            }
+
+            if cols == 0 {
+                cols = splitted.len();
+            } else if cols != splitted.len() {
+                panic!("Cannot read matrix");
+            }
+
+            rows += 1;
+
+            for num_str in splitted {
+                let num = num_str.parse::<f64>().expect("Not a number");
+                data.push(num);
+            }
+        }
+
+        Matrix { rows, cols, data }
     }
 
     fn random(rows: usize, cols: usize) -> Matrix {
@@ -144,7 +204,7 @@ impl Matrix {
         result
     }
 
-    fn multiply_async(&self, other: &Matrix) -> Matrix {
+    fn multiply_par(&self, other: &Matrix) -> Matrix {
         assert_eq!(self.cols, other.rows);
 
         let result = Arc::new(AtomicCell::new(Matrix::new(
@@ -173,6 +233,11 @@ impl Matrix {
         });
 
         unsafe { (*result.as_ptr()).clone() }
+    }
+
+    fn write_to_file(&self) {
+        let mut file = File::create("output.txt").expect("Unable to create file");
+        file.write_all(format!("{}", self).as_bytes()).expect("Unable to write data");
     }
 }
 

@@ -9,3 +9,6 @@ edition = "2021"
 rand = "0.8.5"
 rayon = "1.5.2"
 crossbeam = "0.8.1"
+clap = { version = "3.2.5", features = ["derive"] }
+tokio = { version = "1.19.2", features = ["full"] }
+tokio-scoped = "0.2.0"
