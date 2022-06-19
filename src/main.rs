@@ -6,26 +6,6 @@ use std::{
 };
 use clap::{Parser, clap_derive::ArgEnum};
 
-#[macro_export]
-macro_rules! matrix {
-    () => {
-        {
-            Matrix::new(0, 0, vec![])
-        }
-    };
-    ($( $( $x: expr ),*);*) => {
-        {
-            let data_as_nested_array = [ $( [ $($x),* ] ),* ];
-            let rows = data_as_nested_array.len();
-            let cols = data_as_nested_array[0].len();
-            let data_as_flat_array: Vec<f64> = data_as_nested_array.into_iter()
-                .flat_map(|row| row.into_iter())
-                .collect();
-            Matrix::new(rows, cols, data_as_flat_array)
-        }
-    }
-}
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Args {
@@ -254,5 +234,128 @@ impl PartialEq for Matrix {
         }
 
         true
+    }
+}
+
+#[macro_export]
+macro_rules! matrix {
+    () => {
+        {
+            Matrix::new(0, 0, vec![])
+        }
+    };
+    ($( $( $x: expr ),*);*) => {
+        {
+            let data_as_nested_array = [ $( [ $($x),* ] ),* ];
+            let rows = data_as_nested_array.len();
+            let cols = data_as_nested_array[0].len();
+            let data_as_flat_array: Vec<f64> = data_as_nested_array.into_iter()
+                .flat_map(|row| row.into_iter())
+                .collect();
+            Matrix::new(rows, cols, data_as_flat_array)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mul_identity() {
+        let a = matrix![
+            1.0, 0.0;
+            0.0, 1.0
+        ];
+        let b = matrix![
+            1.0, 4.0;
+            2.0, 3.0
+        ];
+        let expected = matrix![
+            1.0, 4.0;
+            2.0, 3.0
+        ]; 
+
+        assert_eq!(a.multiply(&b), expected);
+    }
+
+    #[test]
+    fn mul_identity_par() {
+        let a = matrix![
+            1.0, 0.0;
+            0.0, 1.0
+        ];
+        let b = matrix![
+            1.0, 4.0;
+            2.0, 3.0
+        ];
+        let expected = matrix![
+            1.0, 4.0;
+            2.0, 3.0
+        ]; 
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let c = pool.install(|| a.multiply_par(&b));
+
+        assert_eq!(c, expected);
+    }
+
+    #[test]
+    fn mul_not_squared() {
+        let a = matrix![1.0, 0.0];
+        let b = matrix![1.0;
+                                2.0];
+        let expected = matrix![1.0]; 
+
+        assert_eq!(a.multiply(&b), expected);
+    }
+
+    #[test]
+    fn mul_not_squared_par() {
+        let a = matrix![1.0, 0.0];
+        let b = matrix![1.0;
+                                2.0];
+        let expected = matrix![1.0]; 
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let c = pool.install(|| a.multiply_par(&b));
+
+        assert_eq!(c, expected);
+    }
+
+    #[test]
+    fn mul_squared() {
+        let a = matrix![1.0, 2.0;
+                                3.0, 4.0];
+        let b = matrix![1.0, 2.0;
+                                3.0, 4.0];
+        let expected = matrix![7.0, 10.0;
+                                       15.0, 22.0]; 
+
+        assert_eq!(a.multiply(&b), expected);
+    }
+
+    #[test]
+    fn mul_squared_par() {
+        let a = matrix![1.0, 2.0;
+                                3.0, 4.0];
+        let b = matrix![1.0, 2.0;
+                                3.0, 4.0];
+        let expected = matrix![7.0, 10.0;
+                                       15.0, 22.0];
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let c = pool.install(|| a.multiply_par(&b));
+
+        assert_eq!(c, expected);
     }
 }
