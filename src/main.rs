@@ -358,4 +358,42 @@ mod tests {
 
         assert_eq!(c, expected);
     }
+
+    #[test]
+    fn seq_and_par() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+
+        let a = Matrix::random(10, 5);
+        let b = Matrix::random(5, 7);
+        let c = a.multiply(&b);
+        let d = pool.install(|| a.multiply_par(&b));
+        assert_eq!(c, d);
+
+        let a = Matrix::random(50, 13);
+        let b = Matrix::random(13, 70);
+        let c = a.multiply(&b);
+        let d = pool.install(|| a.multiply_par(&b));
+        assert_eq!(c, d);
+
+        let a = Matrix::random(150, 400);
+        let b = Matrix::random(400, 3);
+        let c = a.multiply(&b);
+        let d = pool.install(|| a.multiply_par(&b));
+        assert_eq!(c, d);
+
+        let a = Matrix::random(500, 700);
+        let b = Matrix::random(700, 345);
+        let c = a.multiply(&b);
+        let d = pool.install(|| a.multiply_par(&b));
+        assert_eq!(c, d);
+
+        let a = Matrix::random(1000, 1000);
+        let b = Matrix::random(1000, 1000);
+        let c = a.multiply(&b);
+        let d = pool.install(|| a.multiply_par(&b));
+        assert_eq!(c, d);
+    }
 }
